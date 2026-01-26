@@ -43,7 +43,7 @@ jobs:
         with:
           version-type: ${{ github.event.inputs.type }}
           default: ${{ github.event.inputs.beta == true && 'prerelease' || 'patch' }}
-          commit-message: "chore(release): prepare release ${{version}}"
+          commit-message: "chore(release): prepare release {{version}}"
           tag-prefix: "v"
           skip-tag: true
           skip-push: true
