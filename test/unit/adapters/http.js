@@ -399,17 +399,20 @@ describe('supports http with nodejs', function () {
         res.end();
       })
       .listen(4444, function () {
+        let originalUrl;
         axios
-          .get('http://localhost:4444/', {
+          .get('http://localhost:4444/bar', {
             maxRedirects: 3,
-            beforeRedirect: function (options, responseDetails) {
+            beforeRedirect: function (options, responseDetails, requestDetails) {
               if (options.path === '/foo' && responseDetails.headers.location === '/foo') {
+                originalUrl = requestDetails.url;
                 throw new Error('Provided path is not allowed');
               }
             },
           })
           .catch(function (error) {
             assert.equal(error.message, 'Redirected request failed: Provided path is not allowed');
+            assert.equal(originalUrl, 'http://localhost:4444/bar');
             done();
           })
           .catch(done);

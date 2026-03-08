@@ -448,6 +448,11 @@ export interface AxiosRequestConfig<D = any> {
       headers: Record<string, string>;
       statusCode: HttpStatusCode;
     },
+    requestDetails: {
+      headers: Record<string, string>;
+      url: string;
+      method: string;
+    },
   ) => void;
   socketPath?: string | null;
   transport?: any;
