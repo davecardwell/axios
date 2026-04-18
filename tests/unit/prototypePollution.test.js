@@ -1,13 +1,25 @@
 /* eslint-disable no-prototype-builtins */
 import { afterEach, describe, it } from 'vitest';
 import assert from 'assert';
+import http from 'http';
 import utils from '../../lib/utils.js';
 import mergeConfig from '../../lib/core/mergeConfig.js';
+import defaults from '../../lib/defaults/index.js';
+import axios from '../../index.js';
 
 describe('Prototype Pollution Protection', () => {
   afterEach(() => {
     // Clean up any pollution that might have occurred.
     delete Object.prototype.polluted;
+    delete Object.prototype.parseReviver;
+    delete Object.prototype.transport;
+    delete Object.prototype.transformRequest;
+    delete Object.prototype.transformResponse;
+    delete Object.prototype.formSerializer;
+    delete Object.prototype.httpVersion;
+    delete Object.prototype.lookup;
+    delete Object.prototype.family;
+    delete Object.prototype.http2Options;
   });
 
   describe('utils.merge', () => {
@@ -207,5 +219,89 @@ describe('Prototype Pollution Protection', () => {
       assert.strictEqual(result.headers.common.Accept, 'application/json');
       assert.strictEqual(result.headers.common['Content-Type'], 'application/json');
     });
+
+    // GHSA-pf86-5x62-jrwf gadget 3: polluted transformRequest/Response must not
+    // replace the safe defaults through inherited reads during merge.
+    it('should not inherit polluted transformRequest from Object.prototype', () => {
+      const polluted = () => 'attacker';
+      Object.prototype.transformRequest = polluted;
+
+      const result = mergeConfig({ transformRequest: [(d) => d] }, { url: '/x' });
+
+      assert.notStrictEqual(result.transformRequest, polluted);
+      assert.ok(Array.isArray(result.transformRequest));
+    });
+
+    it('should not inherit polluted transformResponse from Object.prototype', () => {
+      const polluted = () => 'attacker';
+      Object.prototype.transformResponse = polluted;
+
+      const result = mergeConfig({ transformResponse: [(d) => d] }, { url: '/x' });
+
+      assert.notStrictEqual(result.transformResponse, polluted);
+      assert.ok(Array.isArray(result.transformResponse));
+    });
+  });
+
+  // GHSA-pf86-5x62-jrwf gadget 1: parseReviver read via prototype chain.
+  describe('defaults.transformResponse parseReviver', () => {
+    it('should ignore Object.prototype.parseReviver when parsing JSON', () => {
+      let reviverCalled = false;
+      Object.prototype.parseReviver = function polluted(k, v) {
+        reviverCalled = true;
+        if (k === 'role') return 'admin';
+        return v;
+      };
+
+      const ctx = { transitional: defaults.transitional };
+      const result = defaults.transformResponse[0].call(
+        ctx,
+        '{"role":"user","balance":100}'
+      );
+
+      assert.strictEqual(reviverCalled, false);
+      assert.strictEqual(result.role, 'user');
+      assert.strictEqual(result.balance, 100);
+    });
+
+    it('should ignore Object.prototype.responseType', () => {
+      Object.prototype.responseType = 'json';
+      const ctx = { transitional: defaults.transitional };
+      // Non-JSON string body must be returned as-is; polluted responseType must
+      // not force strict JSON parsing.
+      const result = defaults.transformResponse[0].call(ctx, 'plain text');
+      assert.strictEqual(result, 'plain text');
+      delete Object.prototype.responseType;
+    });
+  });
+
+  // GHSA-pf86-5x62-jrwf gadget 2: http adapter must not read config.transport
+  // (or related keys) from Object.prototype.
+  describe('http adapter prototype reads', () => {
+    it('should not invoke Object.prototype.transport on a request', async () => {
+      let hijackCalled = false;
+      Object.prototype.transport = {
+        request(options, handleResponse) {
+          hijackCalled = true;
+          return http.request(options, handleResponse);
+        },
+      };
+
+      const server = http.createServer((req, res) => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end('{"ok":true}');
+      });
+
+      await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+      const { port } = server.address();
+
+      try {
+        const res = await axios.get(`http://127.0.0.1:${port}/`);
+        assert.strictEqual(res.data.ok, true);
+        assert.strictEqual(hijackCalled, false);
+      } finally {
+        await new Promise((resolve) => server.close(resolve));
+      }
+    }, 10000);
   });
 });
