@@ -162,6 +162,7 @@ declare class AxiosError<T = unknown, D = any> extends Error {
   static readonly ERR_CANCELED = 'ERR_CANCELED';
   static readonly ERR_FORM_DATA_DEPTH_EXCEEDED = 'ERR_FORM_DATA_DEPTH_EXCEEDED';
   static readonly ECONNABORTED = 'ECONNABORTED';
+  static readonly ECONNREFUSED = 'ECONNREFUSED';
   static readonly ETIMEDOUT = 'ETIMEDOUT';
 }
 
